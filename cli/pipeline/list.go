@@ -22,6 +22,7 @@ import (
 
 	"go.woodpecker-ci.org/woodpecker/v2/cli/common"
 	"go.woodpecker-ci.org/woodpecker/v2/cli/internal"
+	"go.woodpecker-ci.org/woodpecker/v2/woodpecker-go/woodpecker"
 )
 
 //nolint:gomnd
@@ -63,7 +64,7 @@ func pipelineList(c *cli.Context) error {
 		return err
 	}
 
-	pipelines, err := client.PipelineList(repoID)
+	pipelines, err := client.PipelineList(repoID, woodpecker.PipelineListsOptions{})
 	if err != nil {
 		return err
 	}
