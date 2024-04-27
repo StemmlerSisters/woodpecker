@@ -22,6 +22,7 @@ import (
 
 	"go.woodpecker-ci.org/woodpecker/v2/cli/common"
 	"go.woodpecker-ci.org/woodpecker/v2/cli/internal"
+	"go.woodpecker-ci.org/woodpecker/v2/woodpecker-go/woodpecker"
 )
 
 var pipelineLastCmd = &cli.Command{
@@ -50,7 +51,11 @@ func pipelineLast(c *cli.Context) error {
 		return err
 	}
 
-	pipeline, err := client.PipelineLast(repoID, c.String("branch"))
+	opt := woodpecker.PipelineLastOptions{
+		Branch: c.String("branch"),
+	}
+
+	pipeline, err := client.PipelineLast(repoID, opt)
 	if err != nil {
 		return err
 	}
