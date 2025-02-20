@@ -1,6 +1,7 @@
 import { shallowMount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
-import { type Ref, watch } from 'vue';
+import { watch } from 'vue';
+import type { Ref } from 'vue';
 
 import { usePagination } from './usePaginate';
 
@@ -48,6 +49,7 @@ describe('usePaginate', () => {
       usePaginationComposition = usePagination<{ name: string }>(
         async (page) => repoSecrets[page - 1],
         () => true,
+        { pageSize: 3 },
       );
     });
     await waitForState(usePaginationComposition.loading, true);
@@ -63,6 +65,7 @@ describe('usePaginate', () => {
       usePaginationComposition = usePagination<{ name: string }>(
         async (page) => repoSecrets[page - 1],
         () => true,
+        { pageSize: 3 },
       );
     });
     await waitForState(usePaginationComposition.loading, true);
@@ -86,7 +89,7 @@ describe('usePaginate', () => {
           return orgSecrets[page - 1];
         },
         () => true,
-        { each: ['repo', 'org'] },
+        { each: ['repo', 'org'], pageSize: 3 },
       );
     });
     await waitForState(usePaginationComposition.loading, true);
@@ -111,6 +114,7 @@ describe('usePaginate', () => {
       usePaginationComposition = usePagination<{ name: string }>(
         async (page) => repoSecrets[page - 1],
         () => true,
+        { pageSize: 3 },
       );
     });
     await waitForState(usePaginationComposition.loading, true);
@@ -119,7 +123,7 @@ describe('usePaginate', () => {
     usePaginationComposition.nextPage();
     await waitForState(usePaginationComposition.loading, false);
 
-    usePaginationComposition.resetPage();
+    void usePaginationComposition.resetPage();
     await waitForState(usePaginationComposition.loading, false);
 
     expect(usePaginationComposition.data.value.length).toBe(3);
@@ -132,6 +136,7 @@ describe('usePaginate', () => {
       usePaginationComposition = usePagination<{ name: string }>(
         async (page) => repoSecrets[page - 1],
         () => true,
+        { pageSize: 3 },
       );
     });
     await waitForState(usePaginationComposition.loading, true);

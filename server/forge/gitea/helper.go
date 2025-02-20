@@ -25,11 +25,11 @@ import (
 
 	"code.gitea.io/sdk/gitea"
 
-	"go.woodpecker-ci.org/woodpecker/v2/server/model"
-	"go.woodpecker-ci.org/woodpecker/v2/shared/utils"
+	"go.woodpecker-ci.org/woodpecker/v3/server/model"
+	"go.woodpecker-ci.org/woodpecker/v3/shared/utils"
 )
 
-// helper function that converts a Gitea repository to a Woodpecker repository.
+// toRepo converts a Gitea repository to a Woodpecker repository.
 func toRepo(from *gitea.Repository) *model.Repo {
 	name := strings.Split(from.FullName, "/")[1]
 	avatar := expandAvatar(
@@ -38,7 +38,6 @@ func toRepo(from *gitea.Repository) *model.Repo {
 	)
 	return &model.Repo{
 		ForgeRemoteID: model.ForgeRemoteID(fmt.Sprint(from.ID)),
-		SCMKind:       model.RepoGit,
 		Name:          name,
 		Owner:         from.Owner.UserName,
 		FullName:      from.FullName,
@@ -53,7 +52,7 @@ func toRepo(from *gitea.Repository) *model.Repo {
 	}
 }
 
-// helper function that converts a Gitea permission to a Woodpecker permission.
+// toPerm converts a Gitea permission to a Woodpecker permission.
 func toPerm(from *gitea.Permission) *model.Perm {
 	return &model.Perm{
 		Pull:  from.Pull,
@@ -62,7 +61,7 @@ func toPerm(from *gitea.Permission) *model.Perm {
 	}
 }
 
-// helper function that converts a Gitea team to a Woodpecker team.
+// toTeam converts a Gitea team to a Woodpecker team.
 func toTeam(from *gitea.Organization, link string) *model.Team {
 	return &model.Team{
 		Login:  from.UserName,
@@ -70,7 +69,7 @@ func toTeam(from *gitea.Organization, link string) *model.Team {
 	}
 }
 
-// helper function that extracts the Pipeline data from a Gitea push hook
+// pipelineFromPush extracts the Pipeline data from a Gitea push hook.
 func pipelineFromPush(hook *pushHook) *model.Pipeline {
 	avatar := expandAvatar(
 		hook.Repo.HTMLURL,
@@ -121,7 +120,7 @@ func getChangedFilesFromPushHook(hook *pushHook) []string {
 	return utils.DeduplicateStrings(files)
 }
 
-// helper function that extracts the Pipeline data from a Gitea tag hook
+// pipelineFromTag extracts the Pipeline data from a Gitea tag hook.
 func pipelineFromTag(hook *pushHook) *model.Pipeline {
 	avatar := expandAvatar(
 		hook.Repo.HTMLURL,
@@ -143,7 +142,7 @@ func pipelineFromTag(hook *pushHook) *model.Pipeline {
 	}
 }
 
-// helper function that extracts the Pipeline data from a Gitea pull_request hook
+// pipelineFromPullRequest extracts the Pipeline data from a Gitea pull_request hook.
 func pipelineFromPullRequest(hook *pullRequestHook) *model.Pipeline {
 	avatar := expandAvatar(
 		hook.Repo.HTMLURL,
@@ -172,6 +171,7 @@ func pipelineFromPullRequest(hook *pullRequestHook) *model.Pipeline {
 			hook.PullRequest.Base.Ref,
 		),
 		PullRequestLabels: convertLabels(hook.PullRequest.Labels),
+		FromFork:          hook.PullRequest.Head.RepoID != hook.PullRequest.Base.RepoID,
 	}
 
 	return pipeline
@@ -197,7 +197,7 @@ func pipelineFromRelease(hook *releaseHook) *model.Pipeline {
 	}
 }
 
-// helper function that parses a push hook from a read closer.
+// parsePush parses a push hook from a read closer.
 func parsePush(r io.Reader) (*pushHook, error) {
 	push := new(pushHook)
 	err := json.NewDecoder(r).Decode(push)
@@ -216,8 +216,7 @@ func parseRelease(r io.Reader) (*releaseHook, error) {
 	return pr, err
 }
 
-// fixMalformedAvatar is a helper function that fixes an avatar url if malformed
-// (currently a known bug with gitea)
+// fixMalformedAvatar fixes an avatar url if malformed (currently a known bug with gitea).
 func fixMalformedAvatar(url string) string {
 	index := strings.Index(url, "///")
 	if index != -1 {
@@ -230,38 +229,37 @@ func fixMalformedAvatar(url string) string {
 	return url
 }
 
-// expandAvatar is a helper function that converts a relative avatar URL to the
-// absolute url.
-func expandAvatar(repo, rawurl string) string {
-	aurl, err := url.Parse(rawurl)
+// expandAvatar converts a relative avatar URL to the absolute url.
+func expandAvatar(repo, rawURL string) string {
+	aURL, err := url.Parse(rawURL)
 	if err != nil {
-		return rawurl
+		return rawURL
 	}
-	if aurl.IsAbs() {
+	if aURL.IsAbs() {
 		// Url is already absolute
-		return aurl.String()
+		return aURL.String()
 	}
 
 	// Resolve to base
 	burl, err := url.Parse(repo)
 	if err != nil {
-		return rawurl
+		return rawURL
 	}
-	aurl = burl.ResolveReference(aurl)
+	aURL = burl.ResolveReference(aURL)
 
-	return aurl.String()
+	return aURL.String()
 }
 
-// helper function to return matching hooks.
-func matchingHooks(hooks []*gitea.Hook, rawurl string) *gitea.Hook {
-	link, err := url.Parse(rawurl)
+// matchingHooks return matching hooks.
+func matchingHooks(hooks []*gitea.Hook, rawURL string) *gitea.Hook {
+	link, err := url.Parse(rawURL)
 	if err != nil {
 		return nil
 	}
 	for _, hook := range hooks {
 		if val, ok := hook.Config["url"]; ok {
-			hookurl, err := url.Parse(val)
-			if err == nil && hookurl.Host == link.Host {
+			hookURL, err := url.Parse(val)
+			if err == nil && hookURL.Host == link.Host {
 				return hook
 			}
 		}

@@ -23,11 +23,11 @@ import (
 	"github.com/gorilla/securecookie"
 	"github.com/rs/zerolog/log"
 
-	"go.woodpecker-ci.org/woodpecker/v2/server"
-	"go.woodpecker-ci.org/woodpecker/v2/server/model"
-	"go.woodpecker-ci.org/woodpecker/v2/server/router/middleware/session"
-	"go.woodpecker-ci.org/woodpecker/v2/server/store"
-	"go.woodpecker-ci.org/woodpecker/v2/shared/token"
+	"go.woodpecker-ci.org/woodpecker/v3/server"
+	"go.woodpecker-ci.org/woodpecker/v3/server/model"
+	"go.woodpecker-ci.org/woodpecker/v3/server/router/middleware/session"
+	"go.woodpecker-ci.org/woodpecker/v3/server/store"
+	"go.woodpecker-ci.org/woodpecker/v3/shared/token"
 )
 
 // GetSelf
@@ -44,7 +44,7 @@ func GetSelf(c *gin.Context) {
 
 // GetFeed
 //
-//	@Summary		Get the currently authenticaed users pipeline feed
+//	@Summary		Get the currently authenticated users pipeline feed
 //	@Description	The feed lists the most recent pipeline for the currently authenticated user.
 //	@Router			/user/feed [get]
 //	@Produce		json
@@ -81,7 +81,7 @@ func GetFeed(c *gin.Context) {
 //	@Description	Retrieve the currently authenticated User's Repository list
 //	@Router			/user/repos [get]
 //	@Produce		json
-//	@Success		200	{array}	Repo
+//	@Success		200	{array}	RepoLastPipeline
 //	@Tags			User
 //	@Param			Authorization	header	string	true	"Insert your personal access token"	default(Bearer <personal access token>)
 //	@Param			all				query	bool	false	"query all repos, including inactive ones"
@@ -140,7 +140,31 @@ func GetRepos(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, activeRepos)
+	repoIDs := make([]int64, len(activeRepos))
+	for i, repo := range activeRepos {
+		repoIDs[i] = repo.ID
+	}
+
+	pipelines, err := _store.GetRepoLatestPipelines(repoIDs)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error fetching repository list. %s", err)
+		return
+	}
+
+	latestPipelines := make(map[int64]*model.Pipeline, len(activeRepos))
+	for _, pipeline := range pipelines {
+		latestPipelines[pipeline.RepoID] = pipeline
+	}
+
+	repos := make([]*model.RepoLastPipeline, len(activeRepos))
+	for i, repo := range activeRepos {
+		repos[i] = &model.RepoLastPipeline{
+			Repo:         repo,
+			LastPipeline: latestPipelines[repo.ID],
+		}
+	}
+
+	c.JSON(http.StatusOK, repos)
 }
 
 // PostToken
@@ -153,7 +177,9 @@ func GetRepos(c *gin.Context) {
 //	@Param		Authorization	header	string	true	"Insert your personal access token"	default(Bearer <personal access token>)
 func PostToken(c *gin.Context) {
 	user := session.User(c)
-	tokenString, err := token.New(token.UserToken, user.Login).Sign(user.Hash)
+	t := token.New(token.UserToken)
+	t.Set("user-id", strconv.FormatInt(user.ID, 10))
+	tokenString, err := t.Sign(user.Hash)
 	if err != nil {
 		_ = c.AbortWithError(http.StatusInternalServerError, err)
 		return
@@ -182,7 +208,9 @@ func DeleteToken(c *gin.Context) {
 		return
 	}
 
-	tokenString, err := token.New(token.UserToken, user.Login).Sign(user.Hash)
+	t := token.New(token.UserToken)
+	t.Set("user-id", strconv.FormatInt(user.ID, 10))
+	tokenString, err := t.Sign(user.Hash)
 	if err != nil {
 		_ = c.AbortWithError(http.StatusInternalServerError, err)
 		return

@@ -1,9 +1,10 @@
-import { LoadContext, Plugin, PluginContentLoadedActions } from '@docusaurus/types';
-import path from 'path';
 import fs from 'fs';
+import path from 'path';
+import { LoadContext, Plugin, PluginContentLoadedActions } from '@docusaurus/types';
 import axios, { AxiosError } from 'axios';
-import { Content, WoodpeckerPlugin, WoodpeckerPluginHeader, WoodpeckerPluginIndexEntry } from './types';
+
 import * as markdown from './markdown';
+import { Content, WoodpeckerPlugin, WoodpeckerPluginHeader, WoodpeckerPluginIndexEntry } from './types';
 
 async function loadContent(): Promise<Content> {
   const file = path.join(__dirname, '..', 'plugins.json');
@@ -12,7 +13,7 @@ async function loadContent(): Promise<Content> {
 
   const plugins = (
     await Promise.all(
-      pluginsIndex.plugins.map(async (i) => {
+      pluginsIndex.plugins.map(async (i): Promise<WoodpeckerPlugin | undefined> => {
         let docsContent: string;
         try {
           const response = await axios(i.docs);
@@ -29,7 +30,22 @@ async function loadContent(): Promise<Content> {
           return undefined;
         }
 
-        return <WoodpeckerPlugin>{
+        let pluginIconDataUrl: string | undefined;
+        if (docsHeader.icon) {
+          try {
+            const response = await axios(docsHeader.icon, {
+              responseType: 'arraybuffer',
+            });
+            pluginIconDataUrl = `data:${response.headers['content-type'].toString()};base64,${Buffer.from(
+              response.data,
+              'binary',
+            ).toString('base64')}`;
+          } catch (e) {
+            console.error("Can't fetch plugin icon", docsHeader.icon, (e as AxiosError).message);
+          }
+        }
+
+        return {
           name: docsHeader.name,
           url: docsHeader.url,
           icon: docsHeader.icon,
@@ -40,7 +56,8 @@ async function loadContent(): Promise<Content> {
           containerImage: docsHeader.containerImage,
           containerImageUrl: docsHeader.containerImageUrl,
           verified: i.verified || false,
-        };
+          iconDataUrl: pluginIconDataUrl,
+        } satisfies WoodpeckerPlugin;
       }),
     )
   ).filter<WoodpeckerPlugin>((plugin): plugin is WoodpeckerPlugin => plugin !== undefined);

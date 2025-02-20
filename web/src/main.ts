@@ -1,5 +1,5 @@
-import 'windi.css';
 import '~/compositions/useFavicon';
+import '~/tailwind.css';
 import '~/style.css';
 
 import { createPinia } from 'pinia';
@@ -11,6 +11,7 @@ import { i18n } from '~/compositions/useI18n';
 import { notifications } from '~/compositions/useNotifications';
 import router from '~/router';
 
+// eslint-disable-next-line ts/no-unsafe-argument
 const app = createApp(App);
 
 app.use(router);

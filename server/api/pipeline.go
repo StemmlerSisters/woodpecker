@@ -13,8 +13,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
-// This file has been modified by Informatyka Boguslawski sp. z o.o. sp.k.
 
 package api
 
@@ -24,16 +22,19 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 
-	"go.woodpecker-ci.org/woodpecker/v2/server"
-	"go.woodpecker-ci.org/woodpecker/v2/server/model"
-	"go.woodpecker-ci.org/woodpecker/v2/server/pipeline"
-	"go.woodpecker-ci.org/woodpecker/v2/server/router/middleware/session"
-	"go.woodpecker-ci.org/woodpecker/v2/server/store"
+	"go.woodpecker-ci.org/woodpecker/v3/server"
+	"go.woodpecker-ci.org/woodpecker/v3/server/model"
+	"go.woodpecker-ci.org/woodpecker/v3/server/pipeline"
+	"go.woodpecker-ci.org/woodpecker/v3/server/pipeline/stepbuilder"
+	"go.woodpecker-ci.org/woodpecker/v3/server/router/middleware/session"
+	"go.woodpecker-ci.org/woodpecker/v3/server/store"
+	"go.woodpecker-ci.org/woodpecker/v3/server/store/types"
 )
 
 // CreatePipeline
@@ -66,7 +67,11 @@ func CreatePipeline(c *gin.Context) {
 
 	user := session.User(c)
 
-	lastCommit, _ := _forge.BranchHead(c, user, repo, opts.Branch)
+	lastCommit, err := _forge.BranchHead(c, user, repo, opts.Branch)
+	if err != nil {
+		_ = c.AbortWithError(http.StatusInternalServerError, fmt.Errorf("could not fetch branch head: %w", err))
+		return
+	}
 
 	tmpPipeline := createTmpPipeline(model.EventManual, lastCommit, user, &opts)
 
@@ -100,26 +105,54 @@ func createTmpPipeline(event model.WebhookEvent, commit *model.Commit, user *mod
 
 // GetPipelines
 //
-//	@Summary	List repository pipelines
+//	@Summary		List repository pipelines
 //	@Description	Get a list of pipelines for a repository.
-//	@Router		/repos/{repo_id}/pipelines [get]
-//	@Produce	json
-//	@Success	200	{array}	Pipeline
-//	@Tags		Pipelines
-//	@Param		Authorization	header	string	true	"Insert your personal access token"	default(Bearer <personal access token>)
-//	@Param		repo_id			path	int		true	"the repository id"
-//	@Param		page			query	int		false	"for response pagination, page offset number"	default(1)
-//	@Param		perPage			query	int		false	"for response pagination, max items per page"	default(50)
-//	@Param		before			query	string	false	"only return pipelines before this RFC3339 date"
-//	@Param		after			query	string	false	"only return pipelines after this RFC3339 date"
+//	@Router			/repos/{repo_id}/pipelines [get]
+//	@Produce		json
+//	@Success		200	{array}	Pipeline
+//	@Tags			Pipelines
+//	@Param			Authorization	header	string	true	"Insert your personal access token"	default(Bearer <personal access token>)
+//	@Param			repo_id			path	int		true	"the repository id"
+//	@Param			page			query	int		false	"for response pagination, page offset number"	default(1)
+//	@Param			perPage			query	int		false	"for response pagination, max items per page"	default(50)
+//	@Param			before			query	string	false	"only return pipelines before this RFC3339 date"
+//	@Param			after			query	string	false	"only return pipelines after this RFC3339 date"
+//	@Param			branch			query	string	false	"filter pipelines by branch"
+//	@Param			event			query	string	false	"filter pipelines by webhook events (comma separated)"
+//	@Param			ref				query	string	false	"filter pipelines by strings contained in ref"
+//	@Param			status			query	string	false	"filter pipelines by status"
 func GetPipelines(c *gin.Context) {
 	repo := session.Repo(c)
-	before := c.Query("before")
-	after := c.Query("after")
 
-	filter := new(model.PipelineFilter)
+	filter := &model.PipelineFilter{
+		Branch:      c.Query("branch"),
+		RefContains: c.Query("ref"),
+	}
 
-	if before != "" {
+	if events := c.Query("event"); events != "" {
+		eventList := strings.Split(events, ",")
+		wel := make(model.WebhookEventList, 0, len(eventList))
+		for _, event := range eventList {
+			we := model.WebhookEvent(event)
+			if err := we.Validate(); err != nil {
+				_ = c.AbortWithError(http.StatusBadRequest, err)
+				return
+			}
+			wel = append(wel, we)
+		}
+		filter.Events = wel
+	}
+
+	if status := c.Query("status"); status != "" {
+		ps := model.StatusValue(status)
+		if err := ps.Validate(); err != nil {
+			_ = c.AbortWithError(http.StatusBadRequest, err)
+			return
+		}
+		filter.Status = ps
+	}
+
+	if before := c.Query("before"); before != "" {
 		beforeDt, err := time.Parse(time.RFC3339, before)
 		if err != nil {
 			_ = c.AbortWithError(http.StatusBadRequest, err)
@@ -128,7 +161,7 @@ func GetPipelines(c *gin.Context) {
 		filter.Before = beforeDt.Unix()
 	}
 
-	if after != "" {
+	if after := c.Query("after"); after != "" {
 		afterDt, err := time.Parse(time.RFC3339, after)
 		if err != nil {
 			_ = c.AbortWithError(http.StatusBadRequest, err)
@@ -287,7 +320,7 @@ func GetStepLogs(c *gin.Context) {
 		return
 	}
 
-	logs, err := _store.LogFind(step)
+	logs, err := server.Config.Services.LogStore.LogFind(step)
 	if err != nil {
 		handleDBError(c, err)
 		return
@@ -388,6 +421,47 @@ func GetPipelineConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, configs)
+}
+
+// GetPipelineMetadata
+//
+//	@Summary	Get metadata for a pipeline or a specific workflow, including previous pipeline info
+//	@Router		/repos/{repo_id}/pipelines/{number}/metadata [get]
+//	@Produce	json
+//	@Success	200	{object}	metadata.Metadata
+//	@Tags		Pipelines
+//	@Param		Authorization	header	string	true	"Insert your personal access token"	default(Bearer <personal access token>)
+//	@Param		repo_id			path	int		true	"the repository id"
+//	@Param		number			path	int		true	"the number of the pipeline"
+func GetPipelineMetadata(c *gin.Context) {
+	repo := session.Repo(c)
+	num, err := strconv.ParseInt(c.Param("number"), 10, 64)
+	if err != nil {
+		_ = c.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+
+	_store := store.FromContext(c)
+	currentPipeline, err := _store.GetPipelineNumber(repo, num)
+	if err != nil {
+		handleDBError(c, err)
+		return
+	}
+
+	forge, err := server.Config.Services.Manager.ForgeFromRepo(repo)
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	prevPipeline, err := _store.GetPipelineLastBefore(repo, currentPipeline.Branch, currentPipeline.ID)
+	if err != nil && !errors.Is(err, types.RecordNotExist) {
+		handleDBError(c, err)
+		return
+	}
+
+	metadata := stepbuilder.MetadataFromStruct(forge, repo, currentPipeline, prevPipeline, nil, server.Config.Server.Host)
+	c.JSON(http.StatusOK, metadata)
 }
 
 // CancelPipeline
@@ -551,7 +625,7 @@ func PostPipeline(c *gin.Context) {
 	pl.DeployTask = c.DefaultQuery("deploy_task", pl.DeployTask)
 
 	// make Event overridable to deploy
-	// TODO refactor to use own proper API for deploy
+	// TODO: refactor to use own proper API for deploy
 	if event, ok := c.GetQuery("event"); ok {
 		pl.Event = model.WebhookEvent(event)
 		if pl.Event != model.EventDeploy {
@@ -564,7 +638,7 @@ func PostPipeline(c *gin.Context) {
 			return
 		}
 
-		pl.Deploy = c.DefaultQuery("deploy_to", pl.Deploy)
+		pl.DeployTo = c.DefaultQuery("deploy_to", pl.DeployTo)
 	}
 
 	// Read query string parameters into pipelineParams, exclude reserved params
@@ -582,11 +656,11 @@ func PostPipeline(c *gin.Context) {
 		}
 	}
 
-	newpipeline, err := pipeline.Restart(c, _store, pl, user, repo, envs)
+	newPipeline, err := pipeline.Restart(c, _store, pl, user, repo, envs)
 	if err != nil {
 		handlePipelineErr(c, err)
 	} else {
-		c.JSON(http.StatusOK, newpipeline)
+		c.JSON(http.StatusOK, newPipeline)
 	}
 }
 
@@ -624,7 +698,7 @@ func DeletePipelineLogs(c *gin.Context) {
 	}
 
 	for _, step := range steps {
-		if lErr := _store.LogDelete(step); err != nil {
+		if lErr := server.Config.Services.LogStore.LogDelete(step); err != nil {
 			err = errors.Join(err, lErr)
 		}
 	}

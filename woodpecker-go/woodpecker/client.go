@@ -28,10 +28,20 @@ import (
 const (
 	pathLogLevel = "%s/api/log-level"
 
+	//nolint:godot
 	// TODO: implement endpoints
 	// pathFeed           = "%s/api/user/feed"
 	// pathVersion        = "%s/version"
 )
+
+type ClientError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *ClientError) Error() string {
+	return fmt.Sprintf("client error %d: %s", e.StatusCode, e.Message)
+}
 
 type client struct {
 	client *http.Client
@@ -58,7 +68,7 @@ func (c *client) SetAddress(addr string) {
 	c.addr = addr
 }
 
-// LogLevel returns the current logging level
+// LogLevel returns the current logging level.
 func (c *client) LogLevel() (*LogLevel, error) {
 	out := new(LogLevel)
 	uri := fmt.Sprintf(pathLogLevel, c.addr)
@@ -66,7 +76,7 @@ func (c *client) LogLevel() (*LogLevel, error) {
 	return out, err
 }
 
-// SetLogLevel sets the logging level of the server
+// SetLogLevel sets the logging level of the server.
 func (c *client) SetLogLevel(in *LogLevel) (*LogLevel, error) {
 	out := new(LogLevel)
 	uri := fmt.Sprintf(pathLogLevel, c.addr)
@@ -75,32 +85,32 @@ func (c *client) SetLogLevel(in *LogLevel) (*LogLevel, error) {
 }
 
 //
-// http request helper functions
+// HTTP request helper functions.
 //
 
 // Helper function for making an http GET request.
-func (c *client) get(rawurl string, out any) error {
-	return c.do(rawurl, http.MethodGet, nil, out)
+func (c *client) get(rawURL string, out any) error {
+	return c.do(rawURL, http.MethodGet, nil, out)
 }
 
 // Helper function for making an http POST request.
-func (c *client) post(rawurl string, in, out any) error {
-	return c.do(rawurl, http.MethodPost, in, out)
+func (c *client) post(rawURL string, in, out any) error {
+	return c.do(rawURL, http.MethodPost, in, out)
 }
 
 // Helper function for making an http PATCH request.
-func (c *client) patch(rawurl string, in, out any) error {
-	return c.do(rawurl, http.MethodPatch, in, out)
+func (c *client) patch(rawURL string, in, out any) error {
+	return c.do(rawURL, http.MethodPatch, in, out)
 }
 
 // Helper function for making an http DELETE request.
-func (c *client) delete(rawurl string) error {
-	return c.do(rawurl, http.MethodDelete, nil, nil)
+func (c *client) delete(rawURL string) error {
+	return c.do(rawURL, http.MethodDelete, nil, nil)
 }
 
 // Helper function to make an http request.
-func (c *client) do(rawurl, method string, in, out any) error {
-	body, err := c.open(rawurl, method, in)
+func (c *client) do(rawURL, method string, in, out any) error {
+	body, err := c.open(rawURL, method, in)
 	if err != nil {
 		return err
 	}
@@ -112,8 +122,8 @@ func (c *client) do(rawurl, method string, in, out any) error {
 }
 
 // Helper function to open an http request.
-func (c *client) open(rawurl, method string, in any) (io.ReadCloser, error) {
-	uri, err := url.Parse(rawurl)
+func (c *client) open(rawURL, method string, in any) (io.ReadCloser, error) {
+	uri, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, err
 	}
@@ -139,12 +149,15 @@ func (c *client) open(rawurl, method string, in any) (io.ReadCloser, error) {
 	if resp.StatusCode > http.StatusPartialContent {
 		defer resp.Body.Close()
 		out, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("client error %d: %s", resp.StatusCode, string(out))
+		return nil, &ClientError{
+			StatusCode: resp.StatusCode,
+			Message:    string(out),
+		}
 	}
 	return resp.Body, nil
 }
 
-// mapValues converts a map to url.Values
+// mapValues converts a map to `url.Values`.
 func mapValues(params map[string]string) url.Values {
 	values := url.Values{}
 	for key, val := range params {

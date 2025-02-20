@@ -16,17 +16,36 @@ package api
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 
-	"go.woodpecker-ci.org/woodpecker/v2/server"
-	"go.woodpecker-ci.org/woodpecker/v2/server/model"
-	"go.woodpecker-ci.org/woodpecker/v2/server/router/middleware/session"
-	"go.woodpecker-ci.org/woodpecker/v2/server/store"
+	"go.woodpecker-ci.org/woodpecker/v3/server"
+	"go.woodpecker-ci.org/woodpecker/v3/server/model"
+	"go.woodpecker-ci.org/woodpecker/v3/server/router/middleware/session"
+	"go.woodpecker-ci.org/woodpecker/v3/server/store"
 )
+
+// GetOrgs
+//
+//	@Summary		List organizations
+//	@Description	Returns all registered orgs in the system. Requires admin rights.
+//	@Router			/orgs [get]
+//	@Produce		json
+//	@Success		200	{array}	Org
+//	@Tags			Orgs
+//	@Param			Authorization	header	string	true	"Insert your personal access token"				default(Bearer <personal access token>)
+//	@Param			page			query	int		false	"for response pagination, page offset number"	default(1)
+//	@Param			perPage			query	int		false	"for response pagination, max items per page"	default(50)
+func GetOrgs(c *gin.Context) {
+	orgs, err := store.FromContext(c).OrgList(session.Pagination(c))
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error getting user list. %s", err)
+		return
+	}
+	c.JSON(http.StatusOK, orgs)
+}
 
 // GetOrg
 //
@@ -36,22 +55,9 @@ import (
 //	@Success	200	{array}	Org
 //	@Tags		Organization
 //	@Param		Authorization	header	string	true	"Insert your personal access token"	default(Bearer <personal access token>)
-//	@Param		org_id			path	string	true	"the organziation's id"
+//	@Param		org_id			path	string	true	"the organization's id"
 func GetOrg(c *gin.Context) {
-	_store := store.FromContext(c)
-
-	orgID, err := strconv.ParseInt(c.Param("org_id"), 10, 64)
-	if err != nil {
-		c.String(http.StatusBadRequest, "Error parsing org id. %s", err)
-		return
-	}
-
-	org, err := _store.OrgGet(orgID)
-	if err != nil {
-		handleDBError(c, err)
-		return
-	}
-
+	org := session.Org(c)
 	c.JSON(http.StatusOK, org)
 }
 
@@ -63,10 +69,10 @@ func GetOrg(c *gin.Context) {
 //	@Success	200	{array}	OrgPerm
 //	@Tags		Organization permissions
 //	@Param		Authorization	header	string	true	"Insert your personal access token"	default(Bearer <personal access token>)
-//	@Param		org_id			path	string	true	"the organziation's id"
+//	@Param		org_id			path	string	true	"the organization's id"
 func GetOrgPermissions(c *gin.Context) {
 	user := session.User(c)
-	_store := store.FromContext(c)
+	org := session.Org(c)
 
 	_forge, err := server.Config.Services.Manager.ForgeFromUser(user)
 	if err != nil {
@@ -75,20 +81,8 @@ func GetOrgPermissions(c *gin.Context) {
 		return
 	}
 
-	orgID, err := strconv.ParseInt(c.Param("org_id"), 10, 64)
-	if err != nil {
-		c.String(http.StatusBadRequest, "Error parsing org id. %s", err)
-		return
-	}
-
 	if user == nil {
 		c.JSON(http.StatusOK, &model.OrgPerm{})
-		return
-	}
-
-	org, err := _store.OrgGet(orgID)
-	if err != nil {
-		c.String(http.StatusInternalServerError, "Error getting org %d. %s", orgID, err)
 		return
 	}
 
@@ -105,7 +99,7 @@ func GetOrgPermissions(c *gin.Context) {
 
 	perm, err := server.Config.Services.Membership.Get(c, _forge, user, org.Name)
 	if err != nil {
-		c.String(http.StatusInternalServerError, "Error getting membership for %d. %s", orgID, err)
+		c.String(http.StatusInternalServerError, "Error getting membership for %d. %s", org.ID, err)
 		return
 	}
 
@@ -133,7 +127,7 @@ func LookupOrg(c *gin.Context) {
 
 	orgFullName := strings.TrimLeft(c.Param("org_full_name"), "/")
 
-	org, err := _store.OrgFindByName(orgFullName)
+	org, err := _store.OrgFindByName(orgFullName, user.ForgeID)
 	if err != nil {
 		handleDBError(c, err)
 		return
@@ -166,4 +160,26 @@ func LookupOrg(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, org)
+}
+
+// DeleteOrg
+//
+//	@Summary		Delete an organization
+//	@Description	Deletes the given org. Requires admin rights.
+//	@Router			/orgs/{id} [delete]
+//	@Produce		plain
+//	@Success		204
+//	@Tags			Orgs
+//	@Param			Authorization	header	string	true	"Insert your personal access token"	default(Bearer <personal access token>)
+//	@Param			id				path	string	true	"the org's id"
+func DeleteOrg(c *gin.Context) {
+	_store := store.FromContext(c)
+	org := session.Org(c)
+
+	if err := _store.OrgDelete(org.ID); err != nil {
+		handleDBError(c, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }

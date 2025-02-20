@@ -11,7 +11,7 @@
         <Badge v-if="branch === repo?.default_branch" :label="$t('default')" class="ml-auto" />
       </ListItem>
     </template>
-    <div v-else-if="loading" class="flex justify-center text-wp-text-100">
+    <div v-else-if="loading" class="text-wp-text-100 flex justify-center">
       <Icon name="spinner" />
     </div>
     <Panel v-else class="flex justify-center">
@@ -21,13 +21,16 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, inject, Ref, watch } from 'vue';
+import { computed, inject, watch } from 'vue';
+import type { Ref } from 'vue';
 
 import Badge from '~/components/atomic/Badge.vue';
+import Icon from '~/components/atomic/Icon.vue';
 import ListItem from '~/components/atomic/ListItem.vue';
+import Panel from '~/components/layout/Panel.vue';
 import useApiClient from '~/compositions/useApiClient';
 import { usePagination } from '~/compositions/usePaginate';
-import { Repo } from '~/lib/api/types';
+import type { Repo } from '~/lib/api/types';
 
 const apiClient = useApiClient();
 
